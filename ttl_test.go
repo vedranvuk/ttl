@@ -50,6 +50,9 @@ func TestDelete(t *testing.T) {
 	if err := list.Delete(42); err != nil {
 		t.Fatal(err)
 	}
+	if err := list.Delete(69); err != ErrNotFound {
+		t.Fatal("expected ErrNotFound")
+	}
 	list.Stop()
 	if err := list.Delete(42); err != ErrNotRunning {
 		t.Fatal("expected ErrNotRunning")

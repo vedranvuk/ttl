@@ -31,6 +31,7 @@ type TTL[K comparable] struct {
 	addTimeout chan timeout[K]  // worker comm for adding a new timeout
 	delTimeout chan K           // worker comm for deleting a timeout
 	pingWorker chan bool        // worker comm for starting and stopping worker
+	errchan    chan error       // errchan is used to communicate an error from the worker to the caller method.
 	cb         func(key K)      // timeout callback
 	waiters    []chan time.Time //
 }
@@ -50,6 +51,7 @@ func New[K comparable](cb func(key K)) *TTL[K] {
 		addTimeout: make(chan timeout[K]),
 		delTimeout: make(chan K),
 		pingWorker: make(chan bool),
+		errchan:    make(chan error),
 		cb:         cb,
 	}
 	go p.worker()
@@ -90,18 +92,24 @@ func (self *TTL[K]) Put(key K, duration time.Duration) error {
 		return ErrNotRunning
 	}
 	self.delTimeout <- key
+	<-self.errchan
 	self.addTimeout <- timeout[K]{time.Now().Add(duration), key}
+	<-self.addTimeout
 	return nil
 }
 
+// ErrNotFound is returned when delete does not find the item to be deleted.
+var ErrNotFound = errors.New("not found")
+
 // Delete removes a key from the list.
 // Returns ErrNotRunning if ttl is stopped.
-func (self *TTL[K]) Delete(key K) error {
+func (self *TTL[K]) Delete(key K) (err error) {
 	if !self.running.Load() {
 		return ErrNotRunning
 	}
 	self.delTimeout <- key
-	return nil
+	err = <-self.errchan
+	return
 }
 
 // Stop stops the worker. This method should be called on shutdown.
@@ -148,6 +156,7 @@ loop:
 			// Timeout is somehow before Now(), fire immediately without queue.
 			if t.When.Before(time.Now()) {
 				self.doOnTimeout(t.Key)
+				self.addTimeout <- timeout[K]{}
 				continue
 			}
 			// No active key, initialize it to received timeout.
@@ -157,12 +166,14 @@ loop:
 					key, when = t.Key, t.When
 					self.waiting.Store(true)
 					ticker.Reset(dur)
+					self.addTimeout <- timeout[K]{}
 					continue
 				}
 				// Key being added has already timed out, fire callback.
 				self.doOnTimeout(t.Key)
 				key, when, b = self.advanceQueue(ticker)
 				self.waiting.Store(b)
+				self.addTimeout <- timeout[K]{}
 				continue
 			}
 			// New timeout is before current tick being waited on,
@@ -180,16 +191,19 @@ loop:
 					key, when, b = self.advanceQueue(ticker)
 					self.waiting.Store(b)
 				}
+				self.addTimeout <- timeout[K]{}
 				continue
 			}
 			// A ticker is active and new event is after current, queue it.
 			self.insertTimeout(t)
+			self.addTimeout <- timeout[K]{}
 		case k := <-self.delTimeout:
 			// Key being deleted is currently active.
 			if k == key && self.waiting.Load() {
 				ticker.Stop()
 				key, when, b = self.advanceQueue(ticker)
 				self.waiting.Store(b)
+				self.errchan <- nil
 				continue
 			}
 			// Delete key from queue.
@@ -198,7 +212,10 @@ loop:
 				self.queue = append(self.queue[:idx], self.queue[idx+1:]...)
 				delete(self.dict, k)
 				self.queuemu.Unlock()
+				self.errchan <- nil
+				continue
 			}
+			self.errchan <- ErrNotFound
 		case <-ticker.C:
 			ticker.Stop()
 			if self.waiting.Load() {
