@@ -14,6 +14,7 @@ func TestLatency(t *testing.T) {
 		arrivedAt = time.Now()
 		fmt.Printf("timed out: %d\n", key)
 	})
+	defer list.Stop()
 
 	expectedAt := time.Now().Add(1 * time.Second)
 	list.Put(42, 1*time.Second)
@@ -24,6 +25,7 @@ func TestLatency(t *testing.T) {
 
 func TestLen(t *testing.T) {
 	list := New[int](func(key int) {})
+	defer list.Stop()
 	list.Put(1, 1*time.Hour)
 	list.Put(2, 1*time.Hour)
 	list.Put(3, 1*time.Hour)
@@ -46,6 +48,7 @@ func TestPut(t *testing.T) {
 
 func TestDelete(t *testing.T) {
 	list := New[int](func(key int) {})
+
 	list.Put(42, 1*time.Hour)
 	if err := list.Delete(42); err != nil {
 		t.Fatal(err)
@@ -79,6 +82,17 @@ func TestPutRandom(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		list.Put(keys[i], time.Duration(keys[i])*time.Hour)
 	}
+}
+
+func TestRandom(t *testing.T) {
+	const numLoops int = 1e3
+	list := New[int](func(key int) { fmt.Printf("timed out: %d\n", key) })
+	defer list.Stop()
+	keys := rand.Perm(numLoops)
+	for i := 0; i < numLoops; i++ {
+		list.Put(keys[i], time.Duration(keys[i])*time.Millisecond)
+	}
+	<-list.Wait()
 }
 
 func BenchmarkPutAscending(b *testing.B) {
