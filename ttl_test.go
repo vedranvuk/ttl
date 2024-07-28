@@ -33,12 +33,41 @@ func TestLen(t *testing.T) {
 }
 
 func TestPut(t *testing.T) {
-	list := New[int](func(key int) {})
+
+	var list = New(func(key int) {})
+
+	if err := list.Put(42, 1*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if err := list.Put(42, 1*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if err := list.Put(42, 1*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if err := list.Put(42, 1*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if err := list.Put(42, 1*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if list.Len() != 1 {
+		t.Fatal("put failed")
+	}
+	if err := list.Delete(42); err != nil {
+		t.Fatal(err)
+	}
+	if err := list.Delete(42); err != ErrNotFound {
+		t.Fatal("put failed: expected ErrNotFound")
+	}
+
 	if err := list.Put(42, 1*time.Second); err != nil {
 		t.Fatal(err)
 	}
 	<-list.Wait()
+
 	list.Stop()
+
 	if err := list.Put(42, 1*time.Second); err != ErrNotRunning {
 		t.Fatal("expected ErrNotRunning")
 	}
